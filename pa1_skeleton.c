@@ -18,7 +18,7 @@
 
 /* 
 Please specify the group members here
-# Student #1: 
+# Student #1: Kaelin Goodlett
 # Student #2:
 # Student #3: 
 */
@@ -113,7 +113,55 @@ void run_server() {
      * Server creates listening socket and epoll instance.
      * Server registers the listening socket to epoll
      */
+    int b, l, epoll_fd, on = 1;
+     struct sockaddr_in channel;    // holds IP address
+     socklen_t test;                // left over from previous attempts
+     char buf[MESSAGE_SIZE];        // buffer for outgoing file
+     struct epoll_event event, events[MAX_EVENTS];      // epoll event struct, events size set to global
 
+     /* Build address structure to bind to socket*/
+     memset(&channel, 0, sizeof(channel)); /* zero channel */
+     channel.sin_family = AF_INET;
+     channel.sin_addr.s_addr = htonl(INADDR_ANY);
+     channel.sin_port = htons(server_port);
+
+     /* Passive Open. Wait for connection. */
+     int socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP); /* create socket*/
+     if (socket_fd < 0)
+     {
+        printf("Socket failed\n"); 
+        exit(-1);
+     }
+     setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, (char *) &on, sizeof(on));
+
+     /* Bind the socket to channel, applicable error catch*/
+     b = bind(socket_fd, (struct sockaddr *) &channel, sizeof(channel));
+     if (b < 0)
+     {
+        printf("Bind failed\n"); 
+        exit(-1);
+     }
+
+     /* Set the socket to listen, applicable error catch*/
+     l = listen(socket_fd, num_requests);
+     if (l < 0)
+     {
+        printf("Bind failed\n"); 
+        exit(-1);
+     }
+
+
+     epoll_fd = epoll_create1(0);
+     if (epoll_fd == -1)
+     {
+       printf("Epoll failed\n"); 
+       exit(-1);
+     }
+
+     event.events = EPOLLIN;
+     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, socket_fd, &event);
+
+    /* The listening socket and adding to epoll will compile up to this point*/ 
     /* Server's run-to-completion event loop */
     while (1) {
         /* TODO:
