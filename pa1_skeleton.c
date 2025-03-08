@@ -41,6 +41,7 @@ char *server_ip = "127.0.0.1";
 int server_port = 12345;
 int num_client_threads = DEFAULT_CLIENT_THREADS;
 int num_requests = 1000000;
+pthread_mutex_t request_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /*
  * This structure is used to store per-thread data in the client
@@ -75,6 +76,54 @@ void *client_thread_func(void *arg) {
      * The function exits after sending and receiving a predefined number of messages (num_requests). 
      * It calculates the request rate based on total messages and RTT
      */
+    event.events = EPOLLOUT | EPOLLIN;
+    event.data.fd = data->socket_fd;
+    if(epoll_ctl(data->epoll_fd, EPOLL_CTL_ADD, data_socket_fd, &event) == -1)
+    {
+        perror("epoll_ctl");
+        exit(EXIT_FALIURE);
+    }
+    gettimeofday(&start, NULL);
+
+    while(num_requests)
+    {
+        pthread_mutex_lock(&request_mutex);
+        if(num_requests == 0)
+        {
+            pthread_mutex_unlock(&request_mutex);
+            break;
+        }
+        num_requests--;
+
+        pthread_mutex_unlock(&request_mutex);
+
+        int event_amount = epoll_wait(data->epoll_fd, events, 1, -1);
+        if(event_amount > 0)
+        {
+            send(data->socket_fd, send_buf, MESSAGE_SIZE, 0);
+            data->total_messages++;
+        }
+
+        int event_amount = epoll_wait(data->epoll_fd, events, 1, -1);
+        if (event_amount > 0)
+        {
+            int received = recv(data_socket_fd, recv_buf, MESSAGE_SIZE, 0);
+
+            if(recieved > 0)
+            {
+                recv_buf[recieved] = '\0';
+            }
+            data->total_messages++;
+        }
+    }
+
+    gettimeofday(&end, NULL);
+
+    long long sec = end.tv_sec - start.tv_sec;
+    long long micro = end.tv_usec - start.tv_usec;
+    data->total_rtt = sec * 1000000 + micro;
+
+    data->request_rate = (data->total_messages/((float)sec/micro));
 
     return NULL;
 }
