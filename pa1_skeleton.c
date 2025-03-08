@@ -18,7 +18,7 @@
 
 /* 
 Please specify the group members here
-# Student #1: Kaelin Goodlett
+# Student #1: 
 # Student #2:
 # Student #3: 
 */
@@ -64,24 +64,28 @@ void *client_thread_func(void *arg) {
     char recv_buf[MESSAGE_SIZE];
     struct timeval start, end;
 
+
     // Hint 1: register the "connected" client_thread's socket in the its epoll instance
     // Hint 2: use gettimeofday() and "struct timeval start, end" to record timestamp, which can be used to calculated RTT.
 
+    
     /* TODO:
      * It sends messages to the server, waits for a response using epoll,
      * and measures the round-trip time (RTT) of this request-response.
      */
+
  
     /* TODO:
      * The function exits after sending and receiving a predefined number of messages (num_requests). 
      * It calculates the request rate based on total messages and RTT
      */
-    event.events = EPOLLOUT | EPOLLIN;
+
+    event.events = EPOLLIN | EPOLLOUT;
     event.data.fd = data->socket_fd;
-    if(epoll_ctl(data->epoll_fd, EPOLL_CTL_ADD, data_socket_fd, &event) == -1)
+    if(epoll_ctl(data->epoll_fd, EPOLL_CTL_ADD, data->socket_fd, &event) == -1)
     {
         perror("epoll_ctl");
-        exit(EXIT_FALIURE);
+        exit(EXIT_FAILURE);
     }
     gettimeofday(&start, NULL);
 
@@ -100,21 +104,41 @@ void *client_thread_func(void *arg) {
         int event_amount = epoll_wait(data->epoll_fd, events, 1, -1);
         if(event_amount > 0)
         {
-            send(data->socket_fd, send_buf, MESSAGE_SIZE, 0);
-            data->total_messages++;
-        }
-
-        int event_amount = epoll_wait(data->epoll_fd, events, 1, -1);
-        if (event_amount > 0)
-        {
-            int received = recv(data_socket_fd, recv_buf, MESSAGE_SIZE, 0);
-
-            if(recieved > 0)
+            for (int i = 0; i < event_amount; i++)
             {
-                recv_buf[recieved] = '\0';
+                if(events[i].events & EPOLLOUT)
+                {
+                    send(data->socket_fd, send_buf, MESSAGE_SIZE, 0);
+                    data->total_messages++;
+                }
+
+                if(events[i].events & EPOLLIN)
+                {
+                    int received = recv(data->socket_fd, recv_buf, MESSAGE_SIZE, 0);
+                    if (received > 0)
+                    {
+                        if(received > 0)
+                        {
+                            recv_buf[received] = '\0';
+                        }
+                        data->total_messages++; 
+                    }
+                }
             }
-            data->total_messages++;
+
         }
+
+        // event_amount = epoll_wait(data->epoll_fd, events, 1, -1);
+        // if (event_amount > 0)
+        // {
+        //     int received = recv(data->socket_fd, recv_buf, MESSAGE_SIZE, 0);
+
+        //     if(received > 0)
+        //     {
+        //         recv_buf[received] = '\0';
+        //     }
+        //     data->total_messages++;
+        // }
     }
 
     gettimeofday(&end, NULL);
@@ -144,7 +168,43 @@ void run_client() {
     
     // Hint: use thread_data to save the created socket and epoll instance for each thread
     // You will pass the thread_data to pthread_create() as below
-    for (int i = 0; i < num_client_threads; i++) {
+    // work is done inside the for loop
+
+    // Server setup
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    server_addr.sin_port = htons(server_port);
+    
+    for (int i = 0; i < num_client_threads; i++) 
+    {
+        // Thread socket creation
+        thread_data[i].socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (thread_data[i].socket_fd < 0)
+        {
+            printf("Thread socket creation failed\n");
+            exit(-1);
+        }
+
+        // Thread socket connection
+        int con = connect(thread_data[i].socket_fd, (struct sockaddr*)&server_addr, sizeof(server_addr));
+        if (con < 0)
+        {
+            printf("Thread socket connection failed\n");
+            close(thread_data[i].socket_fd);
+            exit(-1);
+        }
+
+        // Client epoll creation
+        thread_data[i].epoll_fd = epoll_create1(0);
+        if (thread_data[i].epoll_fd < 0)
+        {
+            printf("Epoll creation failed");
+            close(thread_data[i].socket_fd);
+            exit(-1);
+        } 
+
+
         pthread_create(&threads[i], NULL, client_thread_func, &thread_data[i]);
     }
 
@@ -152,8 +212,20 @@ void run_client() {
      * Wait for client threads to complete and aggregate metrics of all client threads
      */
 
-    printf("Average RTT: %lld us\n", total_rtt / total_messages);
-    printf("Total Request Rate: %f messages/s\n", total_request_rate);
+     for(int i = 0; i < num_client_threads; i++)
+     {
+        
+        printf("Average RTT: %lld us\n", thread_data[i].total_rtt / thread_data[i].total_messages);
+        printf("Total Request Rate: %f messages/s\n", thread_data[i].request_rate);
+        printf("\n");
+
+        pthread_join(threads[i], NULL);
+     }
+
+     
+
+    //printf("Average RTT: %lld us\n", total_rtt / total_messages);
+    //printf("Total Request Rate: %f messages/s\n", total_request_rate);
 }
 
 void run_server() {
@@ -162,9 +234,8 @@ void run_server() {
      * Server creates listening socket and epoll instance.
      * Server registers the listening socket to epoll
      */
-    int b, l, epoll_fd, on = 1;
-     struct sockaddr_in channel;    // holds IP address
-     socklen_t test;                // left over from previous attempts
+     int b, l, epoll_fd, on = 1;
+     struct sockaddr_in channel;    // holds IP address                
      char buf[MESSAGE_SIZE];        // buffer for outgoing file
      struct epoll_event event, events[MAX_EVENTS];      // epoll event struct, events size set to global
 
@@ -195,29 +266,89 @@ void run_server() {
      l = listen(socket_fd, num_requests);
      if (l < 0)
      {
-        printf("Bind failed\n"); 
+        printf("Listen failed\n"); 
         exit(-1);
      }
 
 
      epoll_fd = epoll_create1(0);
-     if (epoll_fd == -1)
+     if (epoll_fd < 0)
      {
        printf("Epoll failed\n"); 
        exit(-1);
      }
 
      event.events = EPOLLIN;
+     event.data.fd = socket_fd;
      epoll_ctl(epoll_fd, EPOLL_CTL_ADD, socket_fd, &event);
 
-    /* The listening socket and adding to epoll will compile up to this point*/ 
+    //  int ctl = epoll_ctl(epoll_fd, EPOLL_CTL_ADD, socket_fd, EPOLLIN);
     /* Server's run-to-completion event loop */
     while (1) {
         /* TODO:
          * Server uses epoll to handle connection establishment with clients
          * or receive the message from clients and echo the message back
          */
+
+         int numE = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
+         if (numE < 0)
+         {
+            printf("Wait failed\n");
+            exit(-1);
+         }
+
+        
+         for (int i =0; i < numE; i++)
+         {
+            if (events[i].data.fd == socket_fd)
+            {
+                // New client incoming
+                // Accept connection
+                struct sockaddr_in clientChannel;
+                socklen_t clientLength = sizeof(clientChannel);
+                int client_fd = accept(socket_fd, (struct sockaddr*)&clientChannel, &clientLength);
+                if (client_fd < 0)
+                {
+                    printf("Accept failed.\n");
+                    continue;
+                }
+
+                // Add to epoll
+                event.events = EPOLLIN;
+                event.data.fd = client_fd;
+                
+                if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &event) < 0)
+                {
+                    printf("Failed to add to server epoll\n");
+                    close(client_fd);
+                    exit(-1);
+                }
+            }
+            else
+            {
+                //struct sockaddr_in clientChannel;
+                //socklen_t clientLength = sizeof(clientChannel);
+
+                int read = recv(events[i].data.fd, buf, MESSAGE_SIZE, 0);
+
+                if (read <= 0)
+                {
+                    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, NULL);
+                    close(events[i].data.fd);
+                }
+                else
+                {
+                    send(events[i].data.fd, buf, read, 0);
+                }
+
+            }
+         }
+
+
     }
+    // Close fds
+    close(socket_fd);
+    close(epoll_fd);
 }
 
 int main(int argc, char *argv[]) {
