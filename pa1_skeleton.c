@@ -25,7 +25,7 @@ Please specify the group members here
  PLEASE READ: As we were finishing and got the program to compile and run properly, we 
               noticed that our calculations were off regarding the requested statistics. 
               After multiple attempts and iterations of trying to nail it down, we were unable
-              to get the accurate readings. I have commented out lines (118,294,339), and you can uncomment
+              to confirm if we were getting accurate readings. I have commented out lines (98,257,302), and you can uncomment
               them to prove that the program works as intended in the background, its just the 
               calculation output.
 */
@@ -87,73 +87,38 @@ void *client_thread_func(void *arg) {
      * It calculates the request rate based on total messages and RTT
      */
 
-    event.events = EPOLLIN | EPOLLOUT;
-    event.data.fd = data->socket_fd;
-    if(epoll_ctl(data->epoll_fd, EPOLL_CTL_ADD, data->socket_fd, &event) == -1)
-    {
-        perror("epoll_ctl");
-        exit(-1);
-    }
-    gettimeofday(&start, NULL);
-
-    while(num_requests)
-    {
-        pthread_mutex_lock(&request_mutex);
-        if(num_requests == 0)
+     event.events = EPOLLIN;
+     event.data.fd = data->socket_fd;
+ 
+     epoll_ctl(data->epoll_fd, EPOLL_CTL_ADD, data->socket_fd, &event);
+ 
+     for (int i = 0; i < num_requests; i++) 
+     {
+        gettimeofday(&start, NULL);
+        // printf("Sending message...\n");
+        send(data->socket_fd, send_buf, MESSAGE_SIZE, 0);
+ 
+        while (true) 
         {
-            pthread_mutex_unlock(&request_mutex);
-            break;
-        }
-        num_requests--;
-
-        pthread_mutex_unlock(&request_mutex);
-
-        int event_amount = epoll_wait(data->epoll_fd, events, 1, -1);
-        if(event_amount > 0)
-        {
-            for (int i = 0; i < event_amount; i++)
+            int wait = epoll_wait(data->epoll_fd, events, MAX_EVENTS, -1);
+            if (wait > 0 && events[0].data.fd == data->socket_fd) 
             {
-                // Two ifs to catch for read and write
-                if(events[i].events & EPOLLOUT)
-                {
-                    //printf("Received message: %s\n", recv_buf);
-                    send(data->socket_fd, send_buf, MESSAGE_SIZE, 0);
-                    data->total_messages++;
-                }
-
-                if(events[i].events & EPOLLIN)
-                {
-                    int received = recv(data->socket_fd, recv_buf, MESSAGE_SIZE, 0);
-                    if (received > 0)
-                    {
-                        recv_buf[received] = '\0';  // marks the end of the string
-                        data->total_messages++; 
-                    }
-                }
+                recv(data->socket_fd, recv_buf, MESSAGE_SIZE, 0);
+                gettimeofday(&end, NULL);
+                break;
             }
-
         }
-
-        // event_amount = epoll_wait(data->epoll_fd, events, 1, -1);
-        // if (event_amount > 0)
-        // {
-        //     int received = recv(data->socket_fd, recv_buf, MESSAGE_SIZE, 0);
-
-        //     if(received > 0)
-        //     {
-        //         recv_buf[received] = '\0';
-        //     }
-        //     data->total_messages++;
-        // }
-    }
-
-    gettimeofday(&end, NULL);
-
-    long long sec = end.tv_sec - start.tv_sec;
-    long long micro = end.tv_usec - start.tv_usec;
-    data->total_rtt = sec * 1000000 + micro;
-
-    data->request_rate = (data->total_messages/((float)sec/micro));
+ 
+        long long sec = end.tv_sec - start.tv_sec;
+        long long usec = end.tv_usec - start.tv_usec;
+        data->total_rtt += sec * 1000000 + usec;
+        data->total_messages++;
+      }
+ 
+     data->request_rate = (float)data->total_messages / ((float)data->total_rtt / 1000000);
+ 
+     close(data->socket_fd);
+     close(data->epoll_fd);
 
     return NULL;
 }
@@ -283,7 +248,7 @@ void run_server() {
      epoll_ctl(epoll_fd, EPOLL_CTL_ADD, socket_fd, &event);
 
     /* Server's run-to-completion event loop */
-    while (1) {
+    while (true) {
         /* TODO:
          * Server uses epoll to handle connection establishment with clients
          * or receive the message from clients and echo the message back
