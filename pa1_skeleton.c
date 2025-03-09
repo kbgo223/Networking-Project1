@@ -18,9 +18,16 @@
 
 /* 
 Please specify the group members here
-# Student #1: 
-# Student #2:
+# Student #1: Kaelin Goodlett
+# Student #2: Nathaniel Baker
 # Student #3: 
+
+ PLEASE READ: As we were finishing and got the program to compile and run properly, we 
+              noticed that our calculations were off regarding the requested statistics. 
+              After multiple attempts and iterations of trying to nail it down, we were unable
+              to get the accurate readings. I have commented out lines (118,294,339), and you can uncomment
+              them to prove that the program works as intended in the background, its just the 
+              calculation output.
 */
 
 #include <stdio.h>
@@ -85,7 +92,7 @@ void *client_thread_func(void *arg) {
     if(epoll_ctl(data->epoll_fd, EPOLL_CTL_ADD, data->socket_fd, &event) == -1)
     {
         perror("epoll_ctl");
-        exit(EXIT_FAILURE);
+        exit(-1);
     }
     gettimeofday(&start, NULL);
 
@@ -106,8 +113,10 @@ void *client_thread_func(void *arg) {
         {
             for (int i = 0; i < event_amount; i++)
             {
+                // Two ifs to catch for read and write
                 if(events[i].events & EPOLLOUT)
                 {
+                    //printf("Received message: %s\n", recv_buf);
                     send(data->socket_fd, send_buf, MESSAGE_SIZE, 0);
                     data->total_messages++;
                 }
@@ -117,10 +126,7 @@ void *client_thread_func(void *arg) {
                     int received = recv(data->socket_fd, recv_buf, MESSAGE_SIZE, 0);
                     if (received > 0)
                     {
-                        if(received > 0)
-                        {
-                            recv_buf[received] = '\0';
-                        }
+                        recv_buf[received] = '\0';  // marks the end of the string
                         data->total_messages++; 
                     }
                 }
@@ -204,7 +210,6 @@ void run_client() {
             exit(-1);
         } 
 
-
         pthread_create(&threads[i], NULL, client_thread_func, &thread_data[i]);
     }
 
@@ -221,11 +226,6 @@ void run_client() {
 
         pthread_join(threads[i], NULL);
      }
-
-     
-
-    //printf("Average RTT: %lld us\n", total_rtt / total_messages);
-    //printf("Total Request Rate: %f messages/s\n", total_request_rate);
 }
 
 void run_server() {
@@ -282,7 +282,6 @@ void run_server() {
      event.data.fd = socket_fd;
      epoll_ctl(epoll_fd, EPOLL_CTL_ADD, socket_fd, &event);
 
-    //  int ctl = epoll_ctl(epoll_fd, EPOLL_CTL_ADD, socket_fd, EPOLLIN);
     /* Server's run-to-completion event loop */
     while (1) {
         /* TODO:
@@ -290,6 +289,7 @@ void run_server() {
          * or receive the message from clients and echo the message back
          */
 
+         //printf("Waiting for epoll event...\n");
          int numE = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
          if (numE < 0)
          {
@@ -326,11 +326,7 @@ void run_server() {
             }
             else
             {
-                //struct sockaddr_in clientChannel;
-                //socklen_t clientLength = sizeof(clientChannel);
-
                 int read = recv(events[i].data.fd, buf, MESSAGE_SIZE, 0);
-
                 if (read <= 0)
                 {
                     epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, NULL);
@@ -338,6 +334,7 @@ void run_server() {
                 }
                 else
                 {
+                    //printf("Sending message\n");
                     send(events[i].data.fd, buf, read, 0);
                 }
 
