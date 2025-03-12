@@ -28,6 +28,9 @@ Please specify the group members here
               to confirm if we were getting accurate readings. I have commented out lines (98,257,302), and you can uncomment
               them to prove that the program works as intended in the background, its just the 
               calculation output.
+
+              UPDATE 3/10: After meeting with Dr. Qi during office hours, we were able to nail down the above bug
+                           and the above can be disregarded.
 */
 
 #include <stdio.h>
@@ -98,7 +101,7 @@ void *client_thread_func(void *arg) {
         // printf("Sending message...\n");
         send(data->socket_fd, send_buf, MESSAGE_SIZE, 0);
  
-        while (true) 
+        while (1) 
         {
             int wait = epoll_wait(data->epoll_fd, events, MAX_EVENTS, -1);
             if (wait > 0 && events[0].data.fd == data->socket_fd) 
@@ -109,14 +112,20 @@ void *client_thread_func(void *arg) {
             }
         }
  
+        
         long long sec = end.tv_sec - start.tv_sec;
         long long usec = end.tv_usec - start.tv_usec;
         data->total_rtt += sec * 1000000 + usec;
         data->total_messages++;
+
       }
  
+
      data->request_rate = (float)data->total_messages / ((float)data->total_rtt / 1000000);
- 
+
+     printf("Average RTT: %lld us\n", data->total_rtt / data->total_messages);
+     printf("Total Request Rate: %f messages/s\n", data->request_rate);
+
      close(data->socket_fd);
      close(data->epoll_fd);
 
@@ -184,13 +193,10 @@ void run_client() {
 
      for(int i = 0; i < num_client_threads; i++)
      {
-        
-        printf("Average RTT: %lld us\n", thread_data[i].total_rtt / thread_data[i].total_messages);
-        printf("Total Request Rate: %f messages/s\n", thread_data[i].request_rate);
-        printf("\n");
-
         pthread_join(threads[i], NULL);
      }
+
+
 }
 
 void run_server() {
@@ -248,7 +254,7 @@ void run_server() {
      epoll_ctl(epoll_fd, EPOLL_CTL_ADD, socket_fd, &event);
 
     /* Server's run-to-completion event loop */
-    while (true) {
+    while (1) {
         /* TODO:
          * Server uses epoll to handle connection establishment with clients
          * or receive the message from clients and echo the message back
